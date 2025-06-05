@@ -14,6 +14,20 @@ class ExtractData(BaseModel):
     cookies: dict
     kategorie: str = ""
 
+@app.get("/debug")
+async def debug_playwright():
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context()
+            page = await context.new_page()
+            await page.goto("https://www.instagram.com/", timeout=15000)
+            content = await page.content()
+            await browser.close()
+            return {"success": True, "html_length": len(content)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 @app.post("/login")
 async def login(data: LoginData):
     async with async_playwright() as p:
