@@ -103,12 +103,18 @@ async def extract(data: ExtractData):
             caption = await caption_elem.text_content() if caption_elem else None
             username = await user_elem.text_content() if user_elem else None
 
+            logging.info(f"caption_elem found: {caption is not None}")
+            logging.info(f"user_elem found: {username is not None}")
+
             if not caption or not username:
+                html_dump = await page.content()
                 logging.warning(f"Extraction failed: no content found at {data.link}")
-                raise HTTPException(
-                    status_code=422,
-                    detail="Caption oder Username konnte nicht extrahiert werden. Prüfe den Link oder Login."
-                )
+                return {
+                    "error": "Caption oder Username konnte nicht extrahiert werden.",
+                    "html_snippet": html_dump[:3000],
+                    "caption_found": caption is not None,
+                    "username_found": username is not None
+                }
 
             logging.info(f"Extract successful: {username}, {data.kategorie}")
             return {
