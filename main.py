@@ -1,68 +1,88 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
-from typing import List
-import datetime
-import re
-
 from playwright.async_api import async_playwright
+import datetime
 
 app = FastAPI()
 
+class LoginData(BaseModel):
+    username: str
+    password: str
 
-class ReelLinkRequest(BaseModel):
-    links: List[str]
+class ExtractData(BaseModel):
+    link: str
+    cookies: dict
+    kategorie: str = ""
 
-
-async def extract_instagram_caption(url: str) -> dict:
+@app.post("/login")
+async def login(data: LoginData):
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
         page = await context.new_page()
 
         try:
-            await page.goto(url, timeout=15000)
-            await page.wait_for_timeout(3000)
+            await page.goto("https://www.instagram.com/accounts/login/")
+            await page.wait_for_selector("input[name='username']")
 
-            # Caption extrahieren
-            try:
-                caption_element = page.locator("xpath=//div[contains(@class, 'x1lliihq')]//span").first
-                caption = await caption_element.text_content()
-                caption = caption.strip() if caption else ""
-            except:
-                caption = ""
+            await page.fill("input[name='username']", data.username)
+            await page.fill("input[name='password']", data.password)
+            await page.click("button[type='submit']")
 
-            # Username extrahieren
-            try:
-                username_element = page.locator("xpath=//header//a[contains(@href, '/')]//span").first
-                username = await username_element.text_content()
-                username = username.strip() if username else "unbekannt"
-            except:
-                username = "unbekannt"
+            await page.wait_for_timeout(5000)
+
+            if "challenge" in page.url or "two_factor" in page.url:
+                raise HTTPException(status_code=401, detail="2FA oder Challenge notwendig")
+
+            cookies = await context.cookies()
+            cookie_dict = {cookie['name']: cookie['value'] for cookie in cookies}
 
             return {
-                "caption": caption,
-                "username": username,
-                "url": url,
-                "date": datetime.datetime.utcnow().isoformat()
+                "success": True,
+                "cookies": cookie_dict,
+                "timestamp": datetime.datetime.utcnow().isoformat()
             }
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Fehler beim Verarbeiten von {url}: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+
         finally:
             await browser.close()
 
-
 @app.post("/extract")
-async def extract_captions(request: ReelLinkRequest):
-    results = []
+async def extract(data: ExtractData):
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context()
 
-    for link in request.links:
-        if not re.match(r"https://www.instagram.com/reel/", link):
-            continue
+        cookie_list = [
+            {"name": k, "value": v, "domain": ".instagram.com", "path": "/"}
+            for k, v in data.cookies.items()
+        ]
+        await context.add_cookies(cookie_list)
+
+        page = await context.new_page()
+
         try:
-            data = await extract_instagram_caption(link)
-            results.append(data)
-        except HTTPException as e:
-            results.append({"url": link, "error": e.detail})
+            await page.goto(data.link)
+            await page.wait_for_selector("article")
 
-    return {"results": results}
+            caption_elem = await page.query_selector("xpath=//div[contains(@class, 'x1lliihq')]//span")
+            caption = await caption_elem.text_content() if caption_elem else ""
+
+            user_elem = await page.query_selector("xpath=//header//a")
+            username = await user_elem.text_content() if user_elem else "unbekannt"
+
+            return {
+                "caption": caption.strip(),
+                "username": username.strip(),
+                "url": data.link,
+                "date": datetime.datetime.utcnow().isoformat(),
+                "kategorie": data.kategorie
+            }
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+        finally:
+            await browser.close()
