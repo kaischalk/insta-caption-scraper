@@ -1,16 +1,22 @@
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from playwright.async_api import async_playwright
 import datetime
 import traceback
-import logging
 
 app = FastAPI()
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-logger.info(">>>>> DIESE VERSION WIRD VERWENDET <<<<<")
+# CORS aktivieren
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Im Produktivbetrieb besser gezielt setzen
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class LoginData(BaseModel):
     username: str
@@ -23,8 +29,6 @@ class ExtractData(BaseModel):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled exception: {exc}")
-    logger.error(traceback.format_exc())
     return JSONResponse(
         status_code=500,
         content={
@@ -84,7 +88,6 @@ async def login(data: LoginData):
 
 @app.post("/extract")
 async def extract(data: ExtractData):
-    logger.info(f"Starting extract for {data.link}")
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
@@ -99,7 +102,7 @@ async def extract(data: ExtractData):
 
         try:
             await page.goto(data.link)
-            await page.wait_for_selector("article", timeout=10000)
+            await page.wait_for_selector("article")
 
             caption_elem = await page.query_selector("xpath=//div[contains(@class, 'x1lliihq')]//span")
             caption = await caption_elem.text_content() if caption_elem else ""
@@ -108,7 +111,7 @@ async def extract(data: ExtractData):
             username = await user_elem.text_content() if user_elem else "unbekannt"
 
             if not caption:
-                raise HTTPException(status_code=400, detail="Caption konnte nicht extrahiert werden")
+                raise HTTPException(status_code=400, detail="Keine Caption gefunden.")
 
             return {
                 "caption": caption.strip(),
@@ -119,7 +122,6 @@ async def extract(data: ExtractData):
             }
 
         except Exception as e:
-            logger.error(f"Fehler beim Extrahieren: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
 
         finally:
