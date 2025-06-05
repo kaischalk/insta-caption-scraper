@@ -12,31 +12,26 @@ class ReelLinkRequest(BaseModel):
     links: List[str]
 
 async def extract_instagram_caption(url: str) -> dict:
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context()
-        page = await context.new_page()
+    # Dummy-Implementierung: Simuliere das Auslesen der Caption
+    # Später hier deine echte Playwright-Logik einfügen
+    return {
+        "caption": "Beispiel Caption",
+        "username": "unbekannt",
+        "url": url,
+        "date": datetime.datetime.utcnow().isoformat()
+    }
 
+@app.post("/extract")
+async def extract_captions(request: ReelLinkRequest):
+    results = []
+
+    for link in request.links:
+        if not re.match(r"https://www.instagram.com/reel/", link):
+            continue
         try:
-            await page.goto(url, timeout=15000)
-            await page.wait_for_timeout(3000)  # kurz warten, bis Seite lädt
+            data = await extract_instagram_caption(link)
+            results.append(data)
+        except HTTPException as e:
+            results.append({"url": link, "error": e.detail})
 
-            # Caption auslesen
-            caption = await page.locator("xpath=//div[contains(@class, 'x1lliihq')]//span").first.text_content()
-            caption = caption.strip() if caption else ""
-
-            # Username auslesen mit Fehlerbehandlung
-            try:
-                username = await page.locator("xpath=//a[contains(@href, '/reel/')]/../../preceding-sibling::div//span").first.text_content()
-                username = username.strip() if username else "unbekannt"
-            except:
-                username = "unbekannt"
-
-            return {
-                "caption": caption,
-                "username": username,
-                "url": url,
-                "date": datetime.datetime.utcnow().isoformat()
-            }
-        except Exception as e:
-            raise HTTPExce
+    return {"results": results}
