@@ -7,7 +7,8 @@ import datetime
 import traceback
 import logging
 
-# Logger Setup
+print(">>>>> DIESE VERSION WIRD VERWENDET <<<<<")
+
 logging.basicConfig(
     filename="extractor.log",
     format="%(asctime)s - %(levelname)s - %(message)s",
